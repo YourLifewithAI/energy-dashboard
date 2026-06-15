@@ -72,6 +72,18 @@ function cleanShare(snap) {
   return (g.renewable + g.nuclear) / snap.total;
 }
 
+// Precompute each country's clean-energy share + a global clean ranking, per
+// metric, so the "Clean %" view can rank by it. Ties (e.g. several countries at
+// ~100% clean) fall back to total, so larger grids rank ahead of micro-grids.
+function computeCleanRanks() {
+  for (const mk of ["capacity", "generation"]) {
+    const list = COUNTRIES.filter((c) => c[mk] && c[mk].total > 0);
+    list.forEach((c) => (c[mk].clean_share = cleanShare(c[mk])));
+    list.sort((a, b) => (b[mk].clean_share - a[mk].clean_share) || (b[mk].total - a[mk].total));
+    list.forEach((c, i) => (c[mk].clean_rank = i + 1));
+  }
+}
+
 /* ----------------------------- init ------------------------------------ */
 async function init() {
   try {
@@ -102,6 +114,7 @@ async function init() {
     trend: null,
   };
   buildRegionEntities();
+  computeCleanRanks();
 
   // Map topology (optional — list still works without it).
   try {
@@ -240,7 +253,14 @@ function filteredCountries() {
       (c.name_ember || "").toLowerCase().includes(state.search) ||
       (c.iso3 || "").toLowerCase().includes(state.search));
   }
-  list.sort((a, b) => b[state.metric].total - a[state.metric].total);
+  const clean = state.mapColor === "clean";
+  list.sort((a, b) => {
+    if (clean) {
+      const d = (b[state.metric].clean_share ?? -1) - (a[state.metric].clean_share ?? -1);
+      if (d) return d;
+    }
+    return b[state.metric].total - a[state.metric].total;
+  });
   if (state.topN !== "all") list = list.slice(0, parseInt(state.topN, 10));
   return list;
 }
@@ -249,8 +269,9 @@ function filteredCountries() {
 function renderAll() {
   $("#mapMetricLabel").textContent =
     `· ${metricLabel().toLowerCase()} (${unit()})`;
-  $("#barsTitle").textContent =
-    `Countries ranked by ${metricLabel().toLowerCase()}`;
+  $("#barsTitle").textContent = state.mapColor === "clean"
+    ? `Countries ranked by clean-energy share (${metricLabel().toLowerCase()})`
+    : `Countries ranked by ${metricLabel().toLowerCase()}`;
   renderFuelLegend();
   renderMap();
   renderBars();
@@ -365,12 +386,15 @@ function renderBars() {
   if (!list.length) { host.innerHTML = ""; empty.hidden = false; return; }
   empty.hidden = true;
 
+  const clean = state.mapColor === "clean";
   const maxTotal = d3.max(list, (c) => c[state.metric].total) || 1;
   const orderedFuels = FUELS.filter((f) => f.id !== "fusion");
 
   host.innerHTML = list.map((c) => {
     const snap = c[state.metric];
-    const widthPct = (snap.total / maxTotal) * 100;
+    // Clean view: full-width composition bars (clean fuels sit left, so the
+    // green portion's length reads as cleanliness). Magnitude view: width ∝ total.
+    const widthPct = clean ? 100 : (snap.total / maxTotal) * 100;
     const segs = orderedFuels.map((f) => {
       const v = snap.fuels[f.id] || 0;
       if (v <= 0) return "";
@@ -378,17 +402,23 @@ function renderBars() {
       return `<div class="bar-seg" style="width:${w}%;background:${f.color}"` +
         segTooltipAttr(f, v, snap) + `></div>`;
     }).join("");
+    const rank = clean ? snap.clean_rank : snap.rank;
+    const valueHtml = clean
+      ? `${pct(snap.clean_share)}<span class="u"> clean · ${fmt(snap.total)} ${unit()}</span>`
+      : `${fmt(snap.total)}<span class="u">${unit()}</span>`;
     const sel = c.iso3 === state.selected ? " selected" : "";
-    const aria = `${c.name}, rank ${snap.rank}, ${fmt(snap.total)} ${unit()}`;
+    const aria = clean
+      ? `${c.name}, ${pct(snap.clean_share)} clean energy, rank ${rank}`
+      : `${c.name}, rank ${rank}, ${fmt(snap.total)} ${unit()}`;
     return (
       `<div class="bar-row${sel}" role="button" tabindex="0" data-iso3="${c.iso3}" aria-label="${aria}">` +
-        `<span class="bar-rank">${snap.rank}</span>` +
+        `<span class="bar-rank">${rank}</span>` +
         `<span class="bar-flag">${c.flag || "🏳️"}</span>` +
         `<div class="bar-main">` +
           `<div class="bar-name">${c.name}</div>` +
           `<div class="bar-track" style="width:${Math.max(widthPct, 2)}%">${segs}</div>` +
         `</div>` +
-        `<span class="bar-value">${fmt(snap.total)}<span class="u">${unit()}</span></span>` +
+        `<span class="bar-value">${valueHtml}</span>` +
       `</div>`
     );
   }).join("");
@@ -530,30 +560,39 @@ function selectRegion(name) {
 // Region comparison: each continent's total for the active metric, as a
 // group-segmented bar, sorted desc. Shown in the World/region summary only.
 function regionComparison() {
+  const clean = state.mapColor === "clean";
   const regions = Object.values(REGION_BY_NAME)
     .filter((r) => r[state.metric] && r[state.metric].total > 0)
-    .sort((a, b) => b[state.metric].total - a[state.metric].total);
+    .map((r) => ({ r, cs: cleanShare(r[state.metric]) }))
+    .sort((a, b) => clean ? (b.cs - a.cs) : (b.r[state.metric].total - a.r[state.metric].total))
+    .map((x) => x.r);
   if (regions.length < 2) return "";
   const max = d3.max(regions, (r) => r[state.metric].total) || 1;
   const rows = regions.map((r) => {
     const s = r[state.metric];
-    const widthPct = Math.max((s.total / max) * 100, 3);
+    const widthPct = clean ? 100 : Math.max((s.total / max) * 100, 3);
     const gt = groupTotals(s);
     const segs = DATA.meta.groups.map((g) => {
       const v = gt[g.id];
       return v > 0 ? `<div class="rr-seg" style="width:${(v / s.total) * 100}%;background:${g.color}"></div>` : "";
     }).join("");
     const selCls = state.region === r.name ? " selected" : "";
-    const aria = `${r.name}, ${fmt(s.total)} ${unit()}, ${pct(s.world_share)} of world`;
+    const valHtml = clean
+      ? `${pct(cleanShare(s))}<span class="u"> clean</span>`
+      : `${fmt(s.total)}<span class="u">${unit()}</span> · ${pct(s.world_share)}`;
+    const aria = clean
+      ? `${r.name}, ${pct(cleanShare(s))} clean energy`
+      : `${r.name}, ${fmt(s.total)} ${unit()}, ${pct(s.world_share)} of world`;
     return (
       `<div class="region-row${selCls}" data-region="${r.name}" role="button" tabindex="0" aria-label="${aria}">` +
         `<div class="rr-head"><span class="rr-name">${r.flag} ${r.name}</span>` +
-          `<span class="rr-val">${fmt(s.total)}<span class="u">${unit()}</span> · ${pct(s.world_share)}</span></div>` +
+          `<span class="rr-val">${valHtml}</span></div>` +
         `<div class="rr-track"><div class="rr-fill" style="width:${widthPct}%">${segs}</div></div>` +
       `</div>`
     );
   }).join("");
-  return `<div class="detail-section-head"><h3>${metricLabel()} by region</h3>` +
+  const heading = clean ? "Clean-energy share by region" : `${metricLabel()} by region`;
+  return `<div class="detail-section-head"><h3>${heading}</h3>` +
     `<span class="muted" style="font-size:11px">click to filter</span></div>` +
     `<div class="region-compare">${rows}</div>`;
 }
