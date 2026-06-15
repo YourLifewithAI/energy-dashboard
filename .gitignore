@@ -1,0 +1,20 @@
+# Large, regenerable raw download (re-fetched by scripts/refresh_data.py)
+data/raw/*.csv
+data/raw/*.csv.tmp
+
+# Runtime artifacts
+data/refresh.log
+*.tmp
+public/*.tmp
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep: public/energy.json, public/world-110m.json, data/raw/mledoze_countries.json
+# (energy.json + the bundled enrichment/topology ARE committed so a fresh
+#  checkout renders immediately, before the first refresh runs.)

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>World Energy Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div class="title-block">
+      <h1><span class="bolt">⚡</span> World Energy Dashboard</h1>
+      <p class="subtitle" id="subtitle">Loading data…</p>
+    </div>
+    <div class="metric-toggle seg" id="metricToggle" role="tablist" aria-label="Metric">
+      <button data-metric="capacity" class="active" type="button">Capacity <span class="unit">GW</span></button>
+      <button data-metric="generation" type="button">Generation <span class="unit">TWh</span></button>
+    </div>
+  </header>
+
+  <div class="controls" id="controls">
+    <div class="control">
+      <label>Show</label>
+      <div class="seg small" id="topNToggle">
+        <button data-topn="all" class="active" type="button">All</button>
+        <button data-topn="25" type="button">Top 25</button>
+        <button data-topn="10" type="button">Top 10</button>
+      </div>
+    </div>
+    <div class="control">
+      <label for="regionSelect">Region</label>
+      <select id="regionSelect"></select>
+    </div>
+    <div class="control grow">
+      <label for="searchInput">Search</label>
+      <input id="searchInput" type="search" placeholder="Find a country…" autocomplete="off" />
+    </div>
+  </div>
+
+  <main class="layout">
+    <section class="left">
+      <div class="panel map-panel">
+        <div class="panel-head">
+          <h2>Global map <span class="muted" id="mapMetricLabel"></span></h2>
+          <div class="seg small" id="mapColorToggle" aria-label="Map colouring">
+            <button data-mapcolor="magnitude" class="active" type="button">Magnitude</button>
+            <button data-mapcolor="clean" type="button">Clean&nbsp;%</button>
+          </div>
+        </div>
+        <div id="map" class="map" role="img" aria-label="World map coloured by energy data. Use the ranked country list below to select a country with the keyboard."></div>
+        <div id="mapLegend" class="map-legend"></div>
+      </div>
+
+      <div class="panel bars-panel">
+        <div class="panel-head">
+          <h2 id="barsTitle">Countries ranked</h2>
+          <div class="fuel-legend" id="fuelLegend"></div>
+        </div>
+        <div id="bars" class="bars" role="group" aria-label="Ranked countries — activate a row to view its details"></div>
+        <p class="bars-empty" id="barsEmpty" hidden>No countries match these filters.</p>
+      </div>
+    </section>
+
+    <aside class="right panel" id="detail" aria-live="polite"></aside>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="status" hidden></div>
+
+  <footer class="app-footer" id="footer"></footer>
+
+  <script src="vendor/d3.min.js"></script>
+  <script src="vendor/topojson-client.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
