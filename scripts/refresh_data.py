@@ -439,6 +439,19 @@ def build():
         "countries": countries,
     }
 
+    # Skip the rewrite if only the timestamp would change — keeps the file (and
+    # therefore git / the Pages redeploy) stable across no-op monthly runs.
+    if OUT_JSON.exists():
+        try:
+            with open(OUT_JSON, encoding="utf-8") as fh:
+                old = json.load(fh)
+            strip = lambda p: {**p, "meta": {k: v for k, v in p["meta"].items() if k != "generated_utc"}}
+            if strip(old) == strip(payload):
+                log(f"No data change since last build - keeping existing {OUT_JSON.name}.")
+                return True
+        except (OSError, ValueError, KeyError):
+            pass  # unreadable/old format — fall through and rewrite
+
     OUT_JSON.parent.mkdir(parents=True, exist_ok=True)
     tmp = OUT_JSON.with_suffix(".json.tmp")
     with open(tmp, "w", encoding="utf-8") as fh:
