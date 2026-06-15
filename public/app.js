@@ -25,6 +25,11 @@ const GROUP_BY_ID = {};
 const COUNTRY_BY_ISO3 = {};
 const COUNTRY_BY_NUM = {};        // parseInt(ccn3) -> country (for map join)
 let WORLD_ENTITY = null;
+const REGION_BY_NAME = {};        // continent name -> aggregate entity
+const REGION_FLAG = {
+  "Africa": "🌍", "Europe": "🌍", "Asia": "🌏",
+  "Oceania": "🌏", "North America": "🌎", "South America": "🌎",
+};
 
 const $ = (sel) => document.querySelector(sel);
 const tooltip = () => document.getElementById("tooltip");
@@ -96,6 +101,7 @@ async function init() {
     generation: DATA.meta.world.generation,
     trend: null,
   };
+  buildRegionEntities();
 
   // Map topology (optional — list still works without it).
   try {
@@ -112,6 +118,59 @@ async function init() {
 function debounce(fn, ms) {
   let t;
   return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+/* --------------------------- region aggregates ------------------------- */
+function blankSnap() {
+  const fuels = {};
+  FUELS.forEach((f) => (fuels[f.id] = 0));
+  return { total: 0, year: null, fuels, _has: false };
+}
+
+// Aggregate every country into its continent, producing region "entities" that
+// look like a country (capacity/generation snapshots with a fuel breakdown) so
+// the detail panel can render them with the same code.
+function buildRegionEntities() {
+  const acc = {};
+  for (const c of COUNTRIES) {
+    const k = c.continent;
+    if (!k) continue;
+    if (!acc[k]) {
+      acc[k] = { iso3: "REGION:" + k, name: k, isRegion: true, flag: REGION_FLAG[k] || "🗺️",
+        countries: 0, capacity: blankSnap(), generation: blankSnap(), trend: null };
+    }
+    const e = acc[k];
+    e.countries += 1;
+    for (const mk of ["capacity", "generation"]) {
+      const s = c[mk];
+      if (!s) continue;
+      const agg = e[mk];
+      agg._has = true;
+      agg.total += s.total;
+      agg.year = agg.year == null ? s.year : Math.max(agg.year, s.year);
+      for (const f of FUELS) agg.fuels[f.id] += s.fuels[f.id] || 0;
+    }
+  }
+  for (const k in acc) {
+    const e = acc[k];
+    for (const mk of ["capacity", "generation"]) {
+      const agg = e[mk];
+      if (!agg._has || agg.total <= 0) { e[mk] = null; continue; }
+      agg.total = Math.round(agg.total * 100) / 100;
+      const w = WORLD_ENTITY[mk];
+      agg.world_share = w && w.total ? agg.total / w.total : null;
+      delete agg._has;
+    }
+    REGION_BY_NAME[k] = e;
+  }
+}
+
+// The "summary" shown when no specific country is selected: the World, or the
+// currently-filtered region.
+function summaryEntity() {
+  return state.region !== "all" && REGION_BY_NAME[state.region]
+    ? REGION_BY_NAME[state.region]
+    : WORLD_ENTITY;
 }
 
 /* --------------------------- header / footer --------------------------- */
@@ -136,6 +195,7 @@ function buildControls() {
 
   $("#regionSelect").addEventListener("change", (e) => {
     state.region = e.target.value;
+    state.selected = "WORLD"; // show the region (or world) summary, not a stale country
     renderAll();
   });
   $("#searchInput").addEventListener("input", debounce((e) => {
@@ -163,7 +223,7 @@ function segHandler(sel, attr, key, render) {
 }
 
 function buildRegionOptions() {
-  const regions = Array.from(new Set(COUNTRIES.map((c) => c.region).filter(Boolean))).sort();
+  const regions = Array.from(new Set(COUNTRIES.map((c) => c.continent).filter(Boolean))).sort();
   const sel = $("#regionSelect");
   sel.innerHTML =
     '<option value="all">All regions</option>' +
@@ -173,7 +233,7 @@ function buildRegionOptions() {
 /* --------------------------- filtering --------------------------------- */
 function filteredCountries() {
   let list = COUNTRIES.filter((c) => c[state.metric] && c[state.metric].total > 0);
-  if (state.region !== "all") list = list.filter((c) => c.region === state.region);
+  if (state.region !== "all") list = list.filter((c) => c.continent === state.region);
   if (state.search) {
     list = list.filter((c) =>
       c.name.toLowerCase().includes(state.search) ||
@@ -363,19 +423,34 @@ function select(iso3) {
 }
 
 function renderDetail() {
-  const e = state.selected === "WORLD" ? WORLD_ENTITY : COUNTRY_BY_ISO3[state.selected];
+  const isSummary = state.selected === "WORLD";          // World or a region aggregate
+  const e = isSummary ? summaryEntity() : COUNTRY_BY_ISO3[state.selected];
   if (!e) { state.selected = "WORLD"; return renderDetail(); }
   const isWorld = e.iso3 === "WORLD";
   const snap = e[state.metric];
   const host = $("#detail");
 
+  // Back button: country -> its summary (world/region); region -> World.
+  let backLabel = null, backAction = null;
+  if (!isSummary) {
+    const sum = summaryEntity();
+    backLabel = `${sum.flag} ${sum.name}`;
+    backAction = "summary";
+  } else if (e.isRegion) {
+    backLabel = "🌍 World";
+    backAction = "world";
+  }
+
+  let sub;
+  if (isWorld) sub = "All regions";
+  else if (e.isRegion) sub = `Region · ${e.countries} countries`;
+  else sub = (e.region || e.continent || "") + (e.iso3 ? " · " + e.iso3 : "");
+
   const head =
     `<div class="detail-head">` +
       `<span class="detail-flag">${e.flag || "🏳️"}</span>` +
-      `<div class="detail-title"><h2>${e.name}</h2>` +
-        `<div class="region">${isWorld ? "All regions" : (e.region || e.continent || "")}` +
-          `${!isWorld && e.iso3 ? " · " + e.iso3 : ""}</div></div>` +
-      (isWorld ? "" : `<button class="back-btn" id="backBtn">🌍 World</button>`) +
+      `<div class="detail-title"><h2>${e.name}</h2><div class="region">${sub}</div></div>` +
+      (backLabel ? `<button class="back-btn" id="backBtn" data-back="${backAction}">${backLabel}</button>` : "") +
     `</div>`;
 
   const cards = ["capacity", "generation"].map((mk) => {
@@ -387,29 +462,40 @@ function renderDetail() {
       return `<div class="stat-card" data-metric="${mk}"><div class="label">${lbl}</div>` +
         `<div class="value">—</div><div class="sub">no data</div></div>`;
     }
-    const rankLine = isWorld
-      ? `<span class="sub">Global total</span>`
-      : `<span class="sub">Rank <b>#${s.rank}</b> · <b>${pct(s.world_share)}</b> of world</span>`;
+    let info;
+    if (isWorld) info = `<span class="sub">Global total</span>`;
+    else if (e.isRegion) info = `<span class="sub"><b>${pct(s.world_share)}</b> of world · ${e.countries} countries</span>`;
+    else info = `<span class="sub">Rank <b>#${s.rank}</b> · <b>${pct(s.world_share)}</b> of world</span>`;
     return (
       `<div class="stat-card${active}" data-metric="${mk}">` +
         `<div class="label">${lbl}<span class="year-badge">${s.year}</span></div>` +
         `<div class="value">${fmt(s.total)}<span class="u">${u}</span></div>` +
-        rankLine +
+        info +
       `</div>`
     );
   }).join("");
 
-  const body = snap && snap.total > 0
-    ? renderMix(e, snap) + (isWorld ? "" : renderTrend(e)) + cfCaveat(e) + fusionNote(snap)
-    : `<p class="muted" style="margin-top:16px">No ${metricLabel().toLowerCase()} data for ${e.name}.</p>`;
+  let body;
+  if (snap && snap.total > 0) {
+    body = renderMix(e, snap)
+      + (isSummary ? regionComparison() : renderTrend(e))
+      + (isSummary ? "" : cfCaveat(e))
+      + fusionNote(snap);
+  } else {
+    body = `<p class="muted" style="margin-top:16px">No ${metricLabel().toLowerCase()} data for ${e.name}.</p>`;
+  }
 
-  host.innerHTML = head +
-    `<div class="stat-cards">${cards}</div>` +
-    body;
+  host.innerHTML = head + `<div class="stat-cards">${cards}</div>` + body;
 
   // wire interactions
   const back = $("#backBtn");
-  if (back) back.addEventListener("click", () => select("WORLD"));
+  if (back) back.addEventListener("click", () => {
+    if (back.dataset.back === "world") {
+      state.region = "all";
+      $("#regionSelect").value = "all";
+    }
+    select("WORLD");
+  });
   host.querySelectorAll(".stat-card[data-metric]").forEach((card) => {
     card.addEventListener("click", () => {
       const mk = card.dataset.metric;
@@ -420,9 +506,56 @@ function renderDetail() {
       renderAll();
     });
   });
+  host.querySelectorAll(".region-row").forEach((row) => {
+    const go = () => selectRegion(row.dataset.region);
+    row.addEventListener("click", go);
+    row.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); go(); }
+    });
+  });
   // Breakdown only affects the detail panel — re-render just that subtree.
   const bd = $("#breakdownToggle");
   if (bd) segHandler("#breakdownToggle", "breakdown", "breakdown", renderDetail);
+}
+
+// Filter to a region and show its summary (used by the region-comparison rows).
+function selectRegion(name) {
+  if (!REGION_BY_NAME[name]) return;
+  state.region = name;
+  $("#regionSelect").value = name;
+  state.selected = "WORLD";
+  renderAll();
+}
+
+// Region comparison: each continent's total for the active metric, as a
+// group-segmented bar, sorted desc. Shown in the World/region summary only.
+function regionComparison() {
+  const regions = Object.values(REGION_BY_NAME)
+    .filter((r) => r[state.metric] && r[state.metric].total > 0)
+    .sort((a, b) => b[state.metric].total - a[state.metric].total);
+  if (regions.length < 2) return "";
+  const max = d3.max(regions, (r) => r[state.metric].total) || 1;
+  const rows = regions.map((r) => {
+    const s = r[state.metric];
+    const widthPct = Math.max((s.total / max) * 100, 3);
+    const gt = groupTotals(s);
+    const segs = DATA.meta.groups.map((g) => {
+      const v = gt[g.id];
+      return v > 0 ? `<div class="rr-seg" style="width:${(v / s.total) * 100}%;background:${g.color}"></div>` : "";
+    }).join("");
+    const selCls = state.region === r.name ? " selected" : "";
+    const aria = `${r.name}, ${fmt(s.total)} ${unit()}, ${pct(s.world_share)} of world`;
+    return (
+      `<div class="region-row${selCls}" data-region="${r.name}" role="button" tabindex="0" aria-label="${aria}">` +
+        `<div class="rr-head"><span class="rr-name">${r.flag} ${r.name}</span>` +
+          `<span class="rr-val">${fmt(s.total)}<span class="u">${unit()}</span> · ${pct(s.world_share)}</span></div>` +
+        `<div class="rr-track"><div class="rr-fill" style="width:${widthPct}%">${segs}</div></div>` +
+      `</div>`
+    );
+  }).join("");
+  return `<div class="detail-section-head"><h3>${metricLabel()} by region</h3>` +
+    `<span class="muted" style="font-size:11px">click to filter</span></div>` +
+    `<div class="region-compare">${rows}</div>`;
 }
 
 function renderMix(e, snap) {

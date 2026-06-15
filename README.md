@@ -7,10 +7,15 @@ other renewables, nuclear, gas, coal, other fossil (incl. oil), and a reserved
 
 - **World choropleth** coloured by magnitude or by clean-energy share.
 - **Ranked, fuel-segmented bars** — filter to Top 10 / Top 25 / All, by region, or search.
+- **Region-aware summary** — pick a continent and the summary panel switches from
+  world totals to that region's totals (its own scale, share of world, country count).
+- **Region comparison** — a "by region" chart compares all six continents'
+  capacity/generation at a glance; click a region to drill in.
 - **Country detail panel** — totals, world rank & share, a fuel-mix donut, a
   by-type breakdown (renewables / nuclear / fossil / fusion), the full fuel
   table, and a capacity/generation trend since 2000.
-- **Self-updating** — a month-end scheduled task re-pulls the source data.
+- **Self-updating** — a month-end scheduled task re-pulls the source data and
+  pushes it, auto-redeploying the live site.
 
 ## Data source
 
@@ -39,6 +44,10 @@ C:\Python314\python.exe -m http.server 5178 --directory public
 # then open http://localhost:5178
 ```
 
+**Live site:** published to GitHub Pages at
+**https://yourlifewithai.github.io/energy-dashboard/** via
+`.github/workflows/pages.yml` (deploys `public/` on every push to `main`).
+
 It's also wired into the Mission Control preview launcher as **`energy-dashboard`**
 (port 5178).
 
@@ -61,7 +70,10 @@ both stdout and `data/refresh.log`.
 A Windows Task Scheduler job, **"Energy Dashboard Monthly Refresh"**, runs
 `scripts\run_refresh.cmd` on the **last day of each month at 04:00**
 (`StartWhenAvailable` is on, so a missed run — e.g. machine asleep — fires as
-soon as the machine is next available).
+soon as the machine is next available). When the data actually changes, the
+wrapper commits the new `energy.json` and pushes it, which triggers the Pages
+workflow to redeploy the live site — fully hands-off. (Push is best-effort and
+never fails the refresh itself.)
 
 ```powershell
 # Inspect / run / remove the task

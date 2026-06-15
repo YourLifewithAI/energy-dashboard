@@ -238,7 +238,9 @@ select:focus, input:focus {
 .bars::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
 /* ---------- Detail panel ---------- */
-.right { position: sticky; top: 14px; align-self: start; min-height: 400px; }
+.right { position: sticky; top: 14px; align-self: start; min-height: 400px; max-height: calc(100vh - 28px); overflow-y: auto; }
+.right::-webkit-scrollbar { width: 8px; }
+.right::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 .detail-head { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
 .detail-flag { font-size: 34px; line-height: 1; }
 .detail-title h2 { font-size: 20px; }
@@ -324,6 +326,25 @@ select:focus, input:focus {
 .legend-row .lr-val { font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); }
 .legend-row .lr-pct { font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; min-width: 46px; }
 
+/* ---------- Region comparison ---------- */
+.region-compare { display: flex; flex-direction: column; gap: 7px; }
+.region-row {
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.region-row:hover { background: var(--panel-2); }
+.region-row.selected { background: var(--panel-2); box-shadow: inset 3px 0 0 var(--accent); }
+.region-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.rr-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; margin-bottom: 4px; }
+.rr-name { font-weight: 550; }
+.rr-val { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
+.rr-val .u { font-size: 10px; color: var(--muted-2); margin-left: 1px; }
+.rr-track { height: 12px; border-radius: 4px; background: #0c1424; overflow: hidden; }
+.rr-fill { height: 100%; display: flex; border-radius: 4px; overflow: hidden; }
+.rr-seg { height: 100%; }
+
 .trend-wrap { margin-top: 18px; }
 .trend-wrap svg { width: 100%; height: 70px; display: block; }
 .trend-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted-2); margin-top: 4px; }
@@ -373,6 +394,6 @@ select:focus, input:focus {
 /* ---------- Responsive ---------- */
 @media (max-width: 980px) {
   .layout { grid-template-columns: 1fr; }
-  .right { position: static; }
+  .right { position: static; max-height: none; overflow: visible; }
   .map { height: 300px; }
 }
